@@ -1,0 +1,111 @@
+version: '3'
+
+#env_file:
+#  - ./.env
+
+# https://hub.docker.com/_/solr/
+# https://sematext.com/blog/docker-solr/
+# https://sematext.com/blog/docker-solr-monitoring/
+# https://github.com/docker/compose/issues/3472
+# https://github.com/docker/compose/issues/2957
+
+services:
+  app:
+    build: services/app/build/php${COMPOSE_PHP_VER}
+    image: php:${COMPOSE_PHP_VER}
+    container_name: blog_app
+    depends_on:
+      - mariadb
+    volumes:
+      - ./${APP_PATH}:${DOCKER_APP_PATH}
+      - ./services/app/etc/php/${COMPOSE_PHP_VER}/php.ini:/usr/local/etc/php/conf.d/z_project_php.ini
+      - ./services/app/usr/local/etc/php-fpm.d/zzz-www.conf:/usr/local/etc/php-fpm.d/zzz-www.conf
+      - ./volumes/var/run/php-fpm/:/var/run/php-fpm/
+      - ./log/app/php${COMPOSE_PHP_VER}:/var/log/php/
+    tty: true
+    ports:
+      - ${HOST_APP_XDEBUG_PORT}:9000
+    environment:
+      - VIRTUAL_HOST=${HOST_APP_DOMAIN}
+      - VIRTUAL_PORT=80
+      - FASTCGI_PASS=app:9001
+      - TERM=xterm
+    networks:
+     - backend
+
+  nginx:
+    build: services/nginx/build/
+    image: nginx:1.13
+    container_name: blog_nginx
+    depends_on:
+      - app
+    #mem_limit: 2HOST_PHPMYADMIN_PORTg
+    #memswap_limit: 0
+    tty: true
+    #stdin_open: false
+    ports:
+      - ${HOST_APP_PORT}:80
+    #links:
+      #- app
+      #- mariadb
+      #- solr
+    volumes:
+      - ${APP_PATH}:${DOCKER_APP_PATH}
+      - ./log/nginx/nginx/:/var/log/nginx
+      - ./services/nginx/etc/nginx/conf.d/vhost.conf:/etc/nginx/conf.d/project.conf
+      - ./volumes/var/run/php-fpm/:/var/run/php-fpm/
+    environment:
+      #- VIRTUAL_HOST=${HOST_APP_DOMAIN}
+      #- VIRTUAL_PORT=80
+      - MAX_BODY_SIZE=20
+      - FASTCGI_PASS=app:9001
+      - TIMEOUT=190
+      - TERM=xterm
+    networks:
+     - frontend
+     - backend
+
+  mariadb:
+    build: services/mariadb/build/
+    image: mariadb:10.1
+    container_name: blog_mariadb_10_1
+    tty: true
+    #stdin_open: false
+    ports:
+      - ${HOST_MARIADB_PORT}:3306
+    environment:
+      #- MYSQL_RANDOM_ROOT_PASSWORD=1
+      - MYSQL_ROOT_PASSWORD
+      - MYSQL_ROOT_HOST
+      - MYSQL_USER
+      - MYSQL_PASSWORD
+      - MYSQL_DATABASE
+      - TERM=xterm
+    volumes:
+      - ${HOST_MARIADB_STORAGE_PATH}:/var/lib/mysql
+    networks:
+     - frontend
+     - backend
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: blog_phpmyadmin
+    ports:
+      - ${HOST_PHPMYADMIN_PORT}:80
+    depends_on:
+      - mariadb
+    #links:
+    #  - mariadb
+    environment:
+      - PMA_HOST=mariadb
+      - MYSQL_ROOT_PASSWORD
+      #- PMA_PORT=${HOST_PMA_SQL_SERVER_PORT}
+    networks:
+     - frontend
+     - backend
+    volumes:
+      - ./services/phpmyadmin/etc/phpmyadmin/config.user.inc.php:/etc/phpmyadmin/config.user.inc.php
+
+networks:
+  frontend:
+  backend:
